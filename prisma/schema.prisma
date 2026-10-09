@@ -1,0 +1,362 @@
+// BookFlow - Event & Venue Booking Marketplace
+// Prisma Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+enum UserRole {
+  USER
+  PROVIDER
+  ADMIN
+}
+
+enum ListingType {
+  VENUE
+  SERVICE
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  PAUSED
+  ARCHIVED
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+enum BookingItemStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+enum ReviewType {
+  USER_TO_PROVIDER
+  PROVIDER_TO_USER
+}
+
+enum NotificationType {
+  BOOKING_REQUEST
+  BOOKING_UPDATE
+  MESSAGE
+  REVIEW
+  LISTING_APPROVED
+  LISTING_REJECTED
+}
+
+// Models
+model User {
+  id                String            @id @default(cuid())
+  clerkId           String            @unique
+  email             String            @unique
+  firstName         String?
+  lastName          String?
+  imageUrl          String?
+  role              UserRole          @default(USER)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  deletedAt         DateTime?
+
+  providerProfile   ProviderProfile?
+  bookings          Booking[]
+  sentMessages      Message[]        @relation("SentMessages")
+  receivedMessages  Message[]        @relation("ReceivedMessages")
+  reviewsGiven      Review[]         @relation("ReviewsGiven")
+  reviewsReceived   Review[]         @relation("ReviewsReceived")
+  notifications     Notification[]
+
+  @@index([clerkId])
+  @@index([email])
+  @@index([role])
+}
+
+model ProviderProfile {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName    String
+  description     String?
+  logoUrl         String?
+  websiteUrl      String?
+  phoneNumber     String?
+  isVerified      Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  listings        Listing[]
+
+  @@index([userId])
+}
+
+model Listing {
+  id              String          @id @default(cuid())
+  providerId      String
+  provider        ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  type            ListingType
+  title           String
+  slug            String          @unique
+  description     String
+  location        String?
+  city            String?
+  state           String?
+  zipCode         String?
+  country         String?
+  status          ListingStatus   @default(DRAFT)
+  rejectionReason String?
+  publishedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  venueDetails    VenueDetails?
+  serviceDetails  ServiceDetails?
+  pricingTiers    PricingTier[]
+  addOns          AddOn[]
+  availabilityBlocks AvailabilityBlock[]
+  revisions       ListingRevision[]
+  bookingItems    BookingItem[]
+  reviews         Review[]
+
+  @@index([providerId])
+  @@index([type])
+  @@index([status])
+  @@index([slug])
+  @@index([city])
+}
+
+model VenueDetails {
+  id              String    @id @default(cuid())
+  listingId       String    @unique
+  listing         Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  capacity        Int
+  squareFootage   Int?
+  hasParking      Boolean   @default(false)
+  hasWifi         Boolean   @default(false)
+  hasAV           Boolean   @default(false)
+  hasCatering     Boolean   @default(false)
+  hasTables       Boolean   @default(false)
+  hasChairs       Boolean   @default(false)
+  
+  amenities       String[]  // JSON array of amenities
+  photos          String[]  // Array of photo URLs
+  floorPlanUrl    String?
+  
+  setupTime       Int?      // minutes
+  cleanupTime     Int?      // minutes
+
+  @@index([listingId])
+}
+
+model ServiceDetails {
+  id              String    @id @default(cuid())
+  listingId       String    @unique
+  listing         Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  category        String
+  serviceArea     String[]  // Array of service areas/regions
+  travelRadius    Int?      // miles
+  
+  portfolio       String[]  // Array of portfolio photo URLs
+  videoUrl        String?
+  
+  minimumLeadTime Int?      // days
+
+  @@index([listingId])
+}
+
+model PricingTier {
+  id          String        @id @default(cuid())
+  listingId   String
+  listing     Listing       @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  name        String        // e.g., "Bronze", "Silver", "Gold"
+  description String?
+  price       Decimal       @db.Decimal(10, 2)
+  duration    Int?          // minutes (for services)
+  isDefault   Boolean       @default(false)
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  bookingItems BookingItem[]
+
+  @@index([listingId])
+}
+
+model AddOn {
+  id          String   @id @default(cuid())
+  listingId   String
+  listing     Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  name        String
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  isRequired  Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([listingId])
+}
+
+model AvailabilityBlock {
+  id          String   @id @default(cuid())
+  listingId   String
+  listing     Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  startDate   DateTime
+  endDate     DateTime
+  reason      String?   // e.g., "booked", "maintenance", "unavailable"
+  isAutoBlock Boolean   @default(false) // Auto-blocked by existing booking
+  
+  createdAt   DateTime @default(now())
+
+  @@index([listingId])
+  @@index([startDate])
+  @@index([endDate])
+}
+
+model ListingRevision {
+  id          String   @id @default(cuid())
+  listingId   String
+  listing     Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  data        String   // JSON string of the revised data
+  status      ListingStatus @default(PENDING_REVIEW)
+  rejectionReason String?
+  submittedAt DateTime @default(now())
+  reviewedAt  DateTime?
+
+  @@index([listingId])
+  @@index([status])
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  eventType       String
+  eventDate       DateTime
+  guestCount      Int
+  notes           String?
+  
+  status          BookingStatus @default(PENDING)
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  items           BookingItem[]
+
+  @@index([userId])
+  @@index([eventDate])
+  @@index([status])
+}
+
+model BookingItem {
+  id              String            @id @default(cuid())
+  bookingId       String
+  booking         Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  listingId       String
+  listing         Listing           @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  pricingTierId   String?
+  pricingTier     PricingTier?      @relation(fields: [pricingTierId], references: [id])
+  addOns          String[]          // Array of add-on IDs
+  
+  quotedPrice     Decimal?          @db.Decimal(10, 2)
+  rejectionReason String?
+  
+  status          BookingItemStatus @default(PENDING)
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  messages        Message[]
+
+  @@index([bookingId])
+  @@index([listingId])
+  @@index([status])
+}
+
+model Message {
+  id              String       @id @default(cuid())
+  bookingItemId   String
+  bookingItem     BookingItem  @relation(fields: [bookingItemId], references: [id], onDelete: Cascade)
+  
+  senderId        String
+  sender          User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId      String
+  receiver        User         @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  
+  content         String
+  isRead          Boolean      @default(false)
+  readAt          DateTime?
+  
+  createdAt       DateTime     @default(now())
+
+  @@index([bookingItemId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([createdAt])
+}
+
+model Review {
+  id              String      @id @default(cuid())
+  listingId       String
+  listing         Listing     @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  reviewerId       String
+  reviewer         User        @relation("ReviewsGiven", fields: [reviewerId], references: [id], onDelete: Cascade)
+  revieweeId       String
+  reviewee         User        @relation("ReviewsReceived", fields: [revieweeId], references: [id], onDelete: Cascade)
+  
+  type            ReviewType
+  rating          Int         // 1-5
+  comment         String?
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([listingId])
+  @@index([reviewerId])
+  @@index([revieweeId])
+  @@index([rating])
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type        NotificationType
+  title       String
+  message     String
+  link        String?
+  
+  isRead      Boolean          @default(false)
+  readAt      DateTime?
+  
+  createdAt   DateTime         @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
